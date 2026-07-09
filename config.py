@@ -26,11 +26,11 @@ RUNWAY_BASE_URL: str = "https://api.dev.runwayml.com/v1"
 
 # --- Model Defaults ---
 # Primary: Google Gemma 4 31B — free tier, no per-token cost, reliable
-DEFAULT_TEXT_MODEL: str = os.getenv("DEFAULT_TEXT_MODEL", "google/gemma-4-31b-it:free")
+DEFAULT_TEXT_MODEL: str = os.getenv("DEFAULT_TEXT_MODEL", "deepseek/deepseek-v4-flash")
 # Fallback used automatically if primary returns a 429 rate-limit
 FALLBACK_TEXT_MODEL: str = "liquid/lfm-2.5-1.2b-instruct:free"
 DEFAULT_IMAGE_SIZE: str = "1024x1024"
-DEFAULT_VIDEO_DURATION: int = 5  # seconds
+DEFAULT_VIDEO_DURATION: int = 8  # seconds
 
 # --- App Settings ---
 APP_TITLE: str = "AI Content Engine"

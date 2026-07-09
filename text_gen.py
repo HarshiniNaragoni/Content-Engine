@@ -285,7 +285,7 @@ def _call_openrouter(
             return content.strip()
 
         # 429 rate-limit — try the next model
-        if response.status_code == 429:
+        if response.status_code in (429, 502, 503, 504):
             try:
                 last_error = (
                     response.json().get("error", {}).get("message", response.text)
