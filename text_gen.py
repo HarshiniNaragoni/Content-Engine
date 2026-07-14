@@ -94,7 +94,16 @@ def generate_tagline(brief: dict) -> str:
     ]
 
     result = _call_openrouter(_TAGLINE_SYSTEM, messages, max_tokens=20)
-    return result.strip().strip('"').strip("'").strip()
+   # return result.strip().strip('"').strip("'").strip()
+    result = result.strip()
+
+    if result.lower().startswith("tagline:"):
+        result = result.split(":", 1)[1].strip()
+
+    result = result.lstrip(":").strip()
+    result = result.strip('"').strip("'").strip()
+
+    return result
 
 
 def generate_blog_intro(brief: dict, tagline: str) -> str:

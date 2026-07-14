@@ -10,6 +10,7 @@ Responsibilities:
 - Persist all results in st.session_state until the next generation run
 """
 
+import os
 import streamlit as st
 from config import APP_TITLE, APP_ICON
 
@@ -171,14 +172,16 @@ st.markdown(
 # Session state — initialise once
 # ---------------------------------------------------------------------------
 for _key, _default in [
-    ("generated",      False),
-    ("generating",     False),
-    ("active_step",    None),
-    ("results",        {}),
-    ("errors",         {}),
-    ("critic_results", {}),
-    ("retry_count",    {}),
-    ("adapted_results", None),   # output from Multi-Channel Adaptation
+    ("generated",       False),
+    ("generating",      False),
+    ("active_step",     None),
+    ("results",         {}),
+    ("errors",          {}),
+    ("critic_results",  {}),
+    ("retry_count",     {}),
+    ("adapted_results", None),
+    ("voiceover_path",  None),   # path to the generated MP3 file
+    ("voiceover_script", None),  # adapted narration script shown in the UI
 ]:
     if _key not in st.session_state:
         st.session_state[_key] = _default
@@ -529,7 +532,97 @@ if st.session_state.generated and st.session_state.critic_results:
 
 
 # ---------------------------------------------------------------------------
-# Multi-Channel Adaptation — below Self-Critique, only when generated
+# Voiceover Generation — below Self-Critique, only when blog is ready
+# ---------------------------------------------------------------------------
+if st.session_state.generated and st.session_state.results.get("blog"):
+    from voiceover import create_voiceover
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Section header ─────────────────────────────────────────────────────
+    st.markdown(
+        """
+        <div style="
+            border-top: 1px solid #2d3561;
+            border-bottom: 1px solid #2d3561;
+            padding: .75rem 0;
+            margin-bottom: 1.2rem;
+            text-align: center;
+        ">
+            <span style="font-size:.7rem;font-weight:700;letter-spacing:2.5px;
+                         text-transform:uppercase;color:#4f8ef7;">
+                🎙 &nbsp; Voiceover Generation &nbsp; 🎙
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    vo_col1, vo_col2 = st.columns([2, 1], gap="medium")
+    with vo_col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+        voiceover_btn = st.button(
+            "🎙 Generate Voiceover",
+            use_container_width=True,
+            key="voiceover_btn",
+        )
+
+    # ── Generate when button clicked ───────────────────────────────────────
+    if voiceover_btn:
+        blog_text = st.session_state.results.get("blog", "")
+        with st.spinner("Adapting script and generating audio…"):
+            try:
+                script, mp3_path = create_voiceover(blog_text)
+                st.session_state.voiceover_script = script
+                st.session_state.voiceover_path   = mp3_path
+            except Exception as exc:
+                st.session_state.voiceover_path   = None
+                st.session_state.voiceover_script = None
+                st.warning(f"⚠️ Voiceover generation failed: {exc}")
+
+    # ── Display results ────────────────────────────────────────────────────
+    if st.session_state.voiceover_path and os.path.exists(st.session_state.voiceover_path):
+        # Adapted script card
+        if st.session_state.voiceover_script:
+            st.markdown(
+                _card_shell("📜", "Adapted Voiceover Script", "Edge TTS")
+                + f'<p style="color:#b0bdd8;font-size:.88rem;line-height:1.8;'
+                f'font-style:italic;">{st.session_state.voiceover_script}</p></div>',
+                unsafe_allow_html=True,
+            )
+
+        # Audio player + download
+        st.markdown(
+            _card_shell("🔊", "Voiceover Audio", "en-US-JennyNeural"),
+            unsafe_allow_html=True,
+        )
+        with open(st.session_state.voiceover_path, "rb") as audio_file:
+            audio_bytes = audio_file.read()
+
+        # Native Streamlit audio player
+        st.audio(audio_bytes, format="audio/mp3")
+
+        # Download button
+        st.download_button(
+            label="⬇️ Download MP3",
+            data=audio_bytes,
+            file_name="campaign_voiceover.mp3",
+            mime="audio/mpeg",
+            key="download_voiceover",
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    elif st.session_state.voiceover_path is None and not voiceover_btn:
+        # Show a waiting card before the user clicks Generate
+        st.markdown(
+            _card_shell("🎙", "Voiceover", "Edge TTS")
+            + '<p class="waiting-text">Click Generate Voiceover to create an audio narration from the blog introduction.</p></div>',
+            unsafe_allow_html=True,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Multi-Channel Adaptation — below Voiceover, only when generated
 # ---------------------------------------------------------------------------
 if st.session_state.generated and st.session_state.results:
     from adapter import CHANNELS, adapt_campaign
@@ -675,15 +768,31 @@ if st.session_state.generated and st.session_state.results:
 # Generation trigger — reset state and rerun into the orchestration block
 # ---------------------------------------------------------------------------
 if generate_btn and form_complete:
-    st.session_state.generating     = True
-    st.session_state.generated      = False
-    st.session_state.active_step    = None
-    st.session_state.results        = {}
-    st.session_state.errors         = {}
-    st.session_state.critic_results = {}
-    st.session_state.retry_count    = {}
-    st.session_state.adapted_results = None   # clear previous adaptation
-    st.rerun()
+    # ------------------------------------------------------------------
+    # Input validation — catch nonsensical or symbol-only inputs before
+    # any AI call is made.  Both fields must contain at least one real
+    # alphanumeric character so that strings like "@@@@" or "!!!!" are
+    # rejected while "Wheelchair", "Kids", "B2B companies" all pass.
+    # ------------------------------------------------------------------
+    _name_ok     = any(c.isalnum() for c in product_name)
+    _audience_ok = any(c.isalpha() for c in target_audience)
+
+    if not _name_ok:
+        st.warning("⚠️ Please enter a valid Product Name.")
+    elif not _audience_ok:
+        st.warning("⚠️ Please enter a valid Target Audience.")
+    else:
+        st.session_state.generating      = True
+        st.session_state.generated       = False
+        st.session_state.active_step     = None
+        st.session_state.results         = {}
+        st.session_state.errors          = {}
+        st.session_state.critic_results  = {}
+        st.session_state.retry_count     = {}
+        st.session_state.adapted_results = None
+        st.session_state.voiceover_path  = None
+        st.session_state.voiceover_script = None
+        st.rerun()
 
 # ---------------------------------------------------------------------------
 # Sequential orchestration — runs all five steps in one pass.
